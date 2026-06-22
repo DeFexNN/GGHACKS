@@ -1,60 +1,200 @@
-# GGHACKS — DeFexHacksLoginPanel
+# 🔐 GGHACKS — Hybrid Android Security Engineering
 
-Professional overview
+A full-stack Android application demonstrating advanced native integration:
+JNI/C++ modules with libcurl + OpenSSL, compile-time string obfuscation,
+multi-ABI NDK packaging, and a custom login/authentication panel.
 
-GGHACKS is a hybrid Android native + Java project integrating JNI C/C++ modules, custom networking (libcurl + OpenSSL), and UI resources. It demonstrates systems-level Android engineering: multi-ABI native builds, native-bridge patterns, and careful binary/resource management.
+Built with Java (Android SDK), C++17 (NDK), Gradle (Kotlin DSL), and CMake.
 
-Why this repo matters for employers
+> *"Engineering is not about what you build — it's about how you build it."*
 
-- Native performance and security: NDK/NDK-build and JNI glue for latency-sensitive tasks.
-- Cross-ABI packaging: arm64-v8a and armeabi-v7a handled via per-ABI libraries and Gradle/ndk config.
-- Networking & TLS: packaged libcurl + OpenSSL show experience integrating native TLS stacks and handling certs/streams.
-- Resource-driven UI: optimized drawables and media handling for responsive UX.
+---
 
-Tech stack
+## Philosophy
 
-- Java/Kotlin (Android app shell)
-- C/C++ (NDK native modules, JNI)
-- libcurl, OpenSSL (native networking)
-- Gradle, Android Studio, Android NDK
+This project showcases **systems-level Android engineering** through the lens of a
+real application. The architecture demonstrates:
 
-Core features
+- **Hybrid native/Java architecture** — C++ JNI module communicating with Android
+  Java layer through clean interface boundaries
+- **Multi-channel networking** — libcurl (native C++), OkHttp (Java), Retrofit
+  (Java) — three independent HTTP stacks in one app
+- **Security through obscurity at the compiler level** — compile-time XOR string
+  encryption using C++14 `constexpr` templates
+- **Multi-ABI native packaging** — prebuilt libraries for both `arm64-v8a` and
+  `armeabi-v7a`, linked via CMake
+- **Professional build system** — Gradle Kotlin DSL, CMake NDK integration, proper
+  dependency management with version pinning
 
-- JNI native modules for performance-critical operations (app/src/main/cpp)
-- Multi-ABI prebuilt libraries for faster CI/dev cycles (app/src/main/cpp/*/lib)
-- Custom networking stack using libcurl+OpenSSL for robust TLS-enabled connections
-- Resource bundling: optimized images and packaged media resources
+---
 
-Highlighted files & callouts
+## Architecture
 
-- app/src/main/cpp/**/libcrypto.a, libssl.a — Prebuilt OpenSSL artifacts (consider rebuilding from source or moving to LFS/releases). Why important: proves ability to integrate and troubleshoot native TLS implementations.
-- app/src/main/cpp/** — JNI glue and native implementations. Note: native code includes careful pointer checks and memory management; point this out in walkthroughs during interviews.
-- app/src/main/res/raw/video.mp4 — Example of media packaging and optimization.
+```
+┌───────────────────────────────────────────────────────┐
+│                 MainActivity.java                      │
+│                                                       │
+│  ┌─────────┐  ┌──────────┐  ┌──────────────────────┐ │
+│  │ Login UI│  │  OkHttp  │  │ JNI Bridge            │ │
+│  │ Panel   │  │ Upload   │  │ System.loadLibrary()  │ │
+│  │         │  │ (ZIP)    │  └──────────┬───────────┘ │
+│  └────┬────┘  └────┬─────┘             │             │
+│       │            │                   │             │
+│  ┌────┴────────────┴───────────────────┴───────────┐ │
+│  │         HTTP Endpoints                           │ │
+│  │  Auth POST  ·  File Upload  ·  Status Download  │ │
+│  └─────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────┘
+                        │
+                   JNI Boundary
+                        │
+┌───────────────────────────────────────────────────────┐
+│              libinject32.so  (C++ NDK)                │
+│                                                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │
+│  │  libcurl     │  │  OpenSSL     │  │  OBFUSCATION │ │
+│  │  HTTP POST   │  │  TLS 1.2     │  │  Compile-time│ │
+│  │  Client      │  │  Encryption  │  │  XOR Strings │ │
+│  └──────────────┘  └──────────────┘  └─────────────┘ │
+└───────────────────────────────────────────────────────┘
+```
 
-Code focus areas to discuss in interviews
+---
 
-- JNI boundary design: safe parameter marshaling, minimal JNI calls for perf, and thread attachment strategies.
-- TLS integration: custom certificate handling and error propagation from native to Java layers.
-- Cross-ABI packaging: strategy for prebuilt binaries vs. building in CI; reproducible builds recommendation.
+## Code Examples
 
-Build & run (developer)
+### JNI Bridge with Native HTTP (C++)
 
-1. Install Android Studio and NDK (r21+ recommended). Set sdk/ndk paths in local.properties.
-2. Open the project in Android Studio and let Gradle sync.
-3. Build native modules: Gradle handles ndk build automatically, or run ./gradlew assembleDebug.
-4. Run on a device (prefer arm64 for full features).
+```cpp
+// Direct libcurl HTTP POST from native code with OpenSSL TLS
+extern "C" JNIEXPORT jint JNICALL
+Java_com_DeFexGGxANDLUA_hacks_MainActivity_executeScript(JNIEnv* env, jobject) {
+    CURL* curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_URL, "https://<host>/endpoint.php");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
-Security & maintenance notes
+    // Read Android system properties natively
+    char build_id[PROP_VALUE_MAX];
+    __system_property_get("ro.build.id", build_id);
 
-- Prebuilt OpenSSL blobs should be audited or rebuilt from source to ensure versions and patches are tracked.
-- Large binaries are recommended to be moved to Git LFS or released as separate artifacts to keep the repo light.
-- Use private testing environments for any sensitive network or authentication flows.
+    // POST with custom headers
+    struct curl_slist* headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-Interview talking points (short)
+    std::string post = "username=andlua&password=" + std::string(build_id);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post.c_str());
 
-- "I architected JNI modules to minimize crossing overhead while keeping native code testable and memory-safe."
-- "I handled OpenSSL integration across ABIs and automated packaging in CI to ensure reproducible builds."
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    return (res == CURLE_OK) ? 1 : 0;
+}
+```
 
-Contact
+### Compile-Time String Obfuscation (C++14)
 
-For a walkthrough or pair-programming demo of native modules, open an issue or contact the author.
+```cpp
+// Adam Yaxley's compile-time XOR obfuscator.
+// Strings are encrypted at compile time, decrypted on first use,
+// and automatically zeroed on scope exit via RAII.
+
+class obfuscated_string {
+    constexpr auto encrypt(char c, size_t i) const {
+        return c ^ key(i);  // XOR with position-dependent key
+    }
+public:
+    constexpr obfuscated_string(const char* s) : data{encrypt(s, 0)...} {}
+    auto decrypt() { /* runtime XOR reversal */ }
+};
+
+#define AY_OBFUSCATE(str) \
+    (obfuscated_string<sizeof(str)>{str}.decrypt())
+
+// Usage: all sensitive strings are opaque in the binary
+auto url = AY_OBFUSCATE("https://api.example.com/auth");
+```
+
+### Multi-ABI CMake Build
+
+```cmake
+# Links prebuilt libcurl + OpenSSL for both ABIs
+cmake_minimum_required(VERSION 3.22.1)
+project("inject32")
+
+add_library(inject32 SHARED main.cpp)
+
+# Per-ABI prebuilt library paths
+set(CURL_LIB_ARM64 ${CMAKE_SOURCE_DIR}/curl/curl-android-arm64-v8a/lib/libcurl.a)
+set(CURL_LIB_ARMV7 ${CMAKE_SOURCE_DIR}/curl/curl-android-armeabi-v7a/lib/libcurl.a)
+
+if(${ANDROID_ABI} STREQUAL "arm64-v8a")
+    target_link_libraries(inject32 ${CURL_LIB_ARM64} ${OPENSSL_ARM64})
+else()
+    target_link_libraries(inject32 ${CURL_LIB_ARMV7} ${OPENSSL_ARMV7})
+endif()
+```
+
+### Android UI with Material Design (Java)
+
+```java
+// Modern Android Material UI with constraint layout, custom gradients,
+// video background, and ripple animations.
+public class MainActivity extends AppCompatActivity {
+    static { System.loadLibrary("inject32"); }  // JNI bridge
+    private native int executeScript();
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        // Video background
+        VideoView video = findViewById(R.id.videoView);
+        video.setVideoURI(Uri.parse("android.resource://" + getPackageName()
+                           + "/" + R.raw.video));
+
+        // Custom Material Button with ripple
+        Button loginBtn = findViewById(R.id.login_button);
+        loginBtn.setOnClickListener(v -> login());
+    }
+}
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| UI | Android XML (ConstraintLayout), Material Design |
+| Java Logic | Android SDK 29-34, OkHttp 4.9, Retrofit 2.9 + Gson |
+| Native (C++) | NDK r25+, libcurl 7.x, OpenSSL 1.1.x |
+| Build | Gradle 8.2 (Kotlin DSL), CMake 3.22 |
+| String Protection | Compile-time XOR obfuscation (`OBFUSCATION.h`) |
+| ABIs | `arm64-v8a`, `armeabi-v7a` |
+| IDE | Android Studio Hedgehog+ |
+
+---
+
+## File Structure
+
+```
+app/
+├── build.gradle.kts          # SDK 29-34, NDK + CMake, OkHttp/Retrofit deps
+├── CMakeLists.txt             # NDK build config, prebuilt lib linking
+└── src/main/
+    ├── AndroidManifest.xml    # Permissions + launcher activity
+    ├── java/.../MainActivity.java     # UI, login, HTTP, file ops
+    ├── cpp/
+    │   ├── CMakeLists.txt     # Native build
+    │   ├── main.cpp           # JNI entry + libcurl HTTP POST
+    │   └── Component/
+    │       ├── HTTP/httplib.h           # cpp-httplib v0.14.3 (9377 lines)
+    │       └── ENCRYPTION/OBFUSCATION.h # Compile-time XOR strings
+    ├── curl/                  # Prebuilt libcurl + OpenSSL for both ABIs
+    └── res/                   # Layouts, drawables, icons, video, fonts
+```
+
+---
+
+*"Good code is invisible. Great code is undeniable."*
